@@ -1,0 +1,63 @@
+"""Unit tests verifying upload limits, migration decoupling, and supply-chain CI (F-12A, F-12B, F-12C)."""
+
+from pathlib import Path
+import re
+
+from app.core.config import get_settings
+
+
+def test_nginx_client_max_body_size_matches_backend_setting():
+    """Verify Nginx client_max_body_size is 25M, matching backend 25 MB max upload (F-12A)."""
+    nginx_conf_path = Path(__file__).resolve().parents[3] / "deployment" / "nginx" / "nginx.conf"
+    assert nginx_conf_path.exists(), f"nginx.conf not found at {nginx_conf_path}"
+
+    content = nginx_conf_path.read_text(encoding="utf-8")
+    match = re.search(r"client_max_body_size\s+([0-9]+)([kKmMgG])\s*;", content)
+    assert match is not None, "client_max_body_size directive not found in nginx.conf"
+
+    size_val = int(match.group(1))
+    unit = match.group(2).upper()
+    assert size_val == 25 and unit == "M", f"Expected client_max_body_size 25M, found {size_val}{unit}"
+
+    # Verify backend setting matches (25 MB = 26,214,400 bytes)
+    settings = get_settings()
+    assert settings.max_upload_size_bytes == 25 * 1024 * 1024
+
+
+def test_dockerfile_supports_decoupled_migrations():
+    """Verify Dockerfile conditionally runs migrations and uses exec for signal handling (F-12B)."""
+    dockerfile_path = Path(__file__).resolve().parents[2] / "Dockerfile"
+    assert dockerfile_path.exists(), f"Dockerfile not found at {dockerfile_path}"
+
+    content = dockerfile_path.read_text(encoding="utf-8")
+    assert "RUN_MIGRATIONS_ON_STARTUP" in content, "Dockerfile CMD does not reference RUN_MIGRATIONS_ON_STARTUP"
+    assert "exec uvicorn" in content, "Dockerfile CMD does not use exec to forward signals to uvicorn"
+
+
+def test_requirements_lock_and_ci_workflow_exist():
+    """Verify supply chain reproducible lockfile and GitHub Actions CI workflow exist (F-12C)."""
+    repo_root = Path(__file__).resolve().parents[3]
+
+    lockfile = repo_root / "backend" / "requirements.lock"
+    assert lockfile.exists(), f"requirements.lock not found at {lockfile}"
+    assert lockfile.stat().st_size > 100, "requirements.lock is empty or truncated"
+
+    ci_workflow = repo_root / ".github" / "workflows" / "security-ci.yml"
+    assert ci_workflow.exists(), f"security-ci.yml not found at {ci_workflow}"
+    assert ci_workflow.stat().st_size > 200, "security-ci.yml is empty or truncated"
+
+
+def test_init_roles_sql_defines_least_privilege_roles():
+    """Verify init-roles.sql exists and defines rag_migrator and rag_app roles (F-12B)."""
+    repo_root = Path(__file__).resolve().parents[3]
+    init_roles = repo_root / "deployment" / "docker" / "postgres" / "init-roles.sql"
+    assert init_roles.exists(), f"init-roles.sql not found at {init_roles}"
+
+    content = init_roles.read_text(encoding="utf-8")
+    assert "rag_migrator" in content, "init-roles.sql must define rag_migrator role"
+    assert "rag_app" in content, "init-roles.sql must define rag_app role"
+    assert "SELECT" in content.upper(), "init-roles.sql must grant SELECT to rag_app"
+    assert "INSERT" in content.upper(), "init-roles.sql must grant INSERT to rag_app"
+    assert "UPDATE" in content.upper(), "init-roles.sql must grant UPDATE to rag_app"
+    assert "DELETE" in content.upper(), "init-roles.sql must grant DELETE to rag_app"
+

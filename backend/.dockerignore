@@ -1,0 +1,49 @@
+# Python environments & caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+tests/
+test_pipeline_e2e.py
+
+# Version control
+.git/
+.gitignore
+
+# Environment secrets & local config
+.env
+.env.*
+!.env.example
+
+# Local databases (F-02: prevent dev.db leakage into build context & image)
+dev.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Local storage, uploads, artifacts & backups (F-02)
+data/
+storage/
+backups/
+artifacts/
+uploads/
+tmp/
+
+# Logs
+*.log
+logs/
+
+# Build test canaries
+canary_*
+*.canary
