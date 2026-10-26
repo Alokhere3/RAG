@@ -1,6 +1,6 @@
 """Create document_chunks and vector_index_metadata tables for Phase 5.
 
-Revision ID: 0005_document_chunks_and_embeddings
+Revision ID: 0005_chunks_and_embeddings
 Revises: 0004_ingestion_jobs
 Create Date: 2026-10-23 00:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from app.models.chunk import VectorType
 
 # revision identifiers, used by Alembic.
-revision: str = "0005_document_chunks_and_embeddings"
+revision: str = "0005_chunks_and_embeddings"
 down_revision: Union[str, None] = "0004_ingestion_jobs"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

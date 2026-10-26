@@ -29,9 +29,12 @@ from app.core.logging import logger, request_id_ctx, setup_logging
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     settings = get_settings()
+    # Enforce production safety contract at startup boundary
+    if settings.is_production:
+        settings.validate_production_safety()
     setup_logging(level="DEBUG" if settings.debug else "INFO")
     logger.info(
-        f"Starting {settings.app_name} v{settings.app_version} [env={settings.app_env}]"
+        f"Starting {settings.app_name} v{settings.app_version} [env={settings.app_env.value}]"
     )
     yield
     from app.core.redis import close_redis
@@ -83,6 +86,8 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
 def create_application() -> FastAPI:
     """FastAPI application factory."""
     settings = get_settings()
+    if settings.is_production:
+        settings.validate_production_safety()
 
     app = FastAPI(
         title=settings.app_name,

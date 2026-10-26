@@ -6,6 +6,7 @@ from app.services.embeddings.base import (
     EmbeddingVector,
 )
 from app.services.embeddings.deterministic import DeterministicEmbeddingProvider
+from app.services.embeddings.gemini import GeminiEmbeddingProvider
 from app.services.embeddings.openai import OpenAIEmbeddingProvider
 from app.services.embeddings.registry import create_embedding_provider
 
@@ -14,6 +15,7 @@ __all__ = [
     "EmbeddingBatchResult",
     "EmbeddingVector",
     "DeterministicEmbeddingProvider",
+    "GeminiEmbeddingProvider",
     "OpenAIEmbeddingProvider",
     "create_embedding_provider",
 ]

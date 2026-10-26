@@ -6,7 +6,9 @@ from app.services.auth.password import hash_password
 from sqlalchemy import select
 
 async def init():
-    engine = get_engine("sqlite+aiosqlite:///dev.db")
+    import sys
+    url = sys.argv[1] if len(sys.argv) > 1 else None
+    engine = get_engine(url) if url else get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = get_sessionmaker(engine)

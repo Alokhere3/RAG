@@ -5,12 +5,19 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-rag}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable must be explicitly set}
       POSTGRES_DB: ${POSTGRES_DB:-rag}
+      RAG_APP_PASSWORD: ${RAG_APP_PASSWORD:?RAG_APP_PASSWORD environment variable must be explicitly set}
+      RAG_MIGRATOR_PASSWORD: ${RAG_MIGRATOR_PASSWORD:?RAG_MIGRATOR_PASSWORD environment variable must be explicitly set}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deployment/docker/postgres/init-pgvector.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql:ro
-      - ./deployment/docker/postgres/init-roles.sql:/docker-entrypoint-initdb.d/02-init-roles.sql:ro
+      - ./deployment/docker/postgres/02-init-roles.sh:/docker-entrypoint-initdb.d/02-init-roles.sh:ro
+      - ./deployment/docker/postgres/init-roles.sql:/etc/postgresql/init-roles.sql:ro
+      - ./deployment/docker/postgres/rotate-role-passwords.sh:/usr/local/bin/rotate-role-passwords.sh:ro
+      - ./deployment/docker/postgres/rotate-role-passwords.sql:/etc/postgresql/rotate-role-passwords.sql:ro
+      - ./deployment/docker/postgres/recover-initialization.sh:/usr/local/bin/recover-initialization.sh:ro
+
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -54,11 +61,11 @@ services:
     container_name: rag-backend
     restart: unless-stopped
     environment:
-      APP_ENV: ${APP_ENV:-development}
+      APP_ENV: ${APP_ENV:?APP_ENV environment variable must be explicitly set (e.g. development, staging, production)}
       APP_NAME: ${APP_NAME:-RAG Platform}
       APP_VERSION: ${APP_VERSION:-0.1.0}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag}
-      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${RAG_APP_USER:-rag_app}:${RAG_APP_PASSWORD:?RAG_APP_PASSWORD environment variable must be explicitly set}@postgres:5432/${POSTGRES_DB:-rag}}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgresql+asyncpg://${RAG_MIGRATOR_USER:-rag_migrator}:${RAG_MIGRATOR_PASSWORD:?RAG_MIGRATOR_PASSWORD environment variable must be explicitly set}@postgres:5432/${POSTGRES_DB:-rag}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       ORGANIZATION_NAME: ${ORGANIZATION_NAME:-Demo Organization}
       ORGANIZATION_LOGO_URL: ${ORGANIZATION_LOGO_URL:-}
@@ -76,9 +83,15 @@ services:
       ENABLE_INGESTION: ${ENABLE_INGESTION:-true}
       RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-false}
       JWT_SECRET: ${JWT_SECRET:-}
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-}
       STORAGE_DIR: /app/data/storage
       DEBUG: ${DEBUG:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
     volumes:
       - storage_data:/app/data/storage
     ports:
@@ -104,11 +117,17 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.workers.ingestion_worker"]
     environment:
-      APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD:-rag}@postgres:5432/${POSTGRES_DB:-rag}
+      APP_ENV: ${APP_ENV:?APP_ENV environment variable must be explicitly set (e.g. development, staging, production)}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${RAG_APP_USER:-rag_app}:${RAG_APP_PASSWORD:?RAG_APP_PASSWORD environment variable must be explicitly set}@postgres:5432/${POSTGRES_DB:-rag}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       STORAGE_DIR: /app/data/storage
       JWT_SECRET: ${JWT_SECRET:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
     volumes:
       - storage_data:/app/data/storage
     depends_on:
@@ -116,6 +135,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os; exit(0)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - rag-network
 

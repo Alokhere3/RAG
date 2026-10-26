@@ -2,6 +2,7 @@
 
 from app.services.llm.base import BaseLlmProvider, LlmMessage, LlmResponse, LlmUsage
 from app.services.llm.deterministic import DeterministicLlmProvider
+from app.services.llm.gemini import GeminiLlmProvider
 from app.services.llm.openai import OpenAILlmProvider
 from app.services.llm.registry import create_llm_provider, get_default_llm_provider
 
@@ -11,6 +12,7 @@ __all__ = [
     "LlmResponse",
     "LlmUsage",
     "DeterministicLlmProvider",
+    "GeminiLlmProvider",
     "OpenAILlmProvider",
     "create_llm_provider",
     "get_default_llm_provider",

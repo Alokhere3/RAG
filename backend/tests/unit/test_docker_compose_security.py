@@ -93,3 +93,106 @@ def test_docker_compose_migration_database_url_exists():
         "Backend service must have MIGRATION_DATABASE_URL environment variable for role separation (F-12B)."
     )
 
+
+def test_docker_compose_app_env_fails_closed():
+    """Verify APP_ENV requires explicit definition and does not silently default to development."""
+    compose_data = _load_compose()
+    for svc in ("backend", "worker"):
+        app_env = str(compose_data["services"][svc]["environment"].get("APP_ENV", ""))
+        assert ":?" in app_env, (
+            f"Service '{svc}' APP_ENV must fail closed (use ${{APP_ENV:?err_msg}}), got: {app_env}"
+        )
+        assert "development" not in app_env or "e.g." in app_env, (
+            f"Service '{svc}' APP_ENV should not provide an implicit fallback to development"
+        )
+
+
+def test_docker_compose_auth_cookie_secure_does_not_force_false():
+    """Verify AUTH_COOKIE_SECURE does not silently force insecure false default in Compose."""
+    compose_data = _load_compose()
+    backend_env = compose_data["services"]["backend"]["environment"]
+    cookie_sec = str(backend_env.get("AUTH_COOKIE_SECURE", ""))
+    assert ":-false" not in cookie_sec, (
+        f"AUTH_COOKIE_SECURE in Compose forces :-false, got: {cookie_sec}. "
+        "It must use ${{AUTH_COOKIE_SECURE:-}} to allow settings.py to default True in production."
+    )
+
+
+def test_docker_compose_database_url_uses_least_privilege_app_role():
+    """Verify runtime DATABASE_URL in backend and worker uses rag_app, not POSTGRES_USER superuser."""
+    compose_data = _load_compose()
+    for svc in ("backend", "worker"):
+        db_url = str(compose_data["services"][svc]["environment"].get("DATABASE_URL", ""))
+        assert "rag_app" in db_url, (
+            f"Service '{svc}' DATABASE_URL must default to rag_app role, got: {db_url}"
+        )
+        assert "POSTGRES_USER" not in db_url, (
+            f"Service '{svc}' DATABASE_URL must not use POSTGRES_USER superuser credentials, got: {db_url}"
+        )
+
+
+def test_docker_compose_migration_database_url_uses_migrator_role():
+    """Verify MIGRATION_DATABASE_URL in backend uses rag_migrator, not POSTGRES_USER superuser."""
+    compose_data = _load_compose()
+    mig_url = str(compose_data["services"]["backend"]["environment"].get("MIGRATION_DATABASE_URL", ""))
+    assert "rag_migrator" in mig_url, (
+        f"Backend MIGRATION_DATABASE_URL must default to rag_migrator role, got: {mig_url}"
+    )
+    assert "POSTGRES_USER" not in mig_url, (
+        f"Backend MIGRATION_DATABASE_URL must not use POSTGRES_USER superuser credentials, got: {mig_url}"
+    )
+
+
+def test_docker_compose_postgres_password_fails_closed():
+    """Verify POSTGRES_PASSWORD in postgres service requires explicit setting (no default)."""
+    compose_data = _load_compose()
+    pg_env = compose_data["services"]["postgres"]["environment"]
+    pg_pass = str(pg_env.get("POSTGRES_PASSWORD", ""))
+    assert ":?" in pg_pass, (
+        f"POSTGRES_PASSWORD in postgres service must fail closed via :?, got: {pg_pass}"
+    )
+
+
+def test_docker_compose_role_passwords_fail_closed():
+    """Verify RAG_APP_PASSWORD and RAG_MIGRATOR_PASSWORD require explicit setting in compose."""
+    compose_data = _load_compose()
+    pg_env = compose_data["services"]["postgres"]["environment"]
+    for role_pass in ("RAG_APP_PASSWORD", "RAG_MIGRATOR_PASSWORD"):
+        val = str(pg_env.get(role_pass, ""))
+        assert ":?" in val, (
+            f"{role_pass} in postgres service must fail closed via :?, got: {val}"
+        )
+
+
+def test_docker_compose_init_script_and_sql_mounted():
+    """Verify 02-init-roles.sh and init-roles.sql are both mounted in postgres service."""
+    compose_data = _load_compose()
+    pg_volumes = [str(v) for v in compose_data["services"]["postgres"].get("volumes", [])]
+    assert any("02-init-roles.sh" in v for v in pg_volumes), (
+        f"Postgres service must mount 02-init-roles.sh for parameterized bootstrap. Volumes: {pg_volumes}"
+    )
+    assert any("init-roles.sql" in v for v in pg_volumes), (
+        f"Postgres service must mount init-roles.sql. Volumes: {pg_volumes}"
+    )
+
+
+def test_docker_compose_rotation_scripts_mounted():
+    """Verify rotate-role-passwords.sh and rotate-role-passwords.sql are mounted in postgres service."""
+    compose_data = _load_compose()
+    pg_volumes = [str(v) for v in compose_data["services"]["postgres"].get("volumes", [])]
+    assert any("rotate-role-passwords.sh" in v for v in pg_volumes), (
+        f"Postgres service must mount rotate-role-passwords.sh for credential rotation. Volumes: {pg_volumes}"
+    )
+    assert any("rotate-role-passwords.sql" in v for v in pg_volumes), (
+        f"Postgres service must mount rotate-role-passwords.sql. Volumes: {pg_volumes}"
+    )
+
+
+def test_docker_compose_recovery_script_mounted():
+    """Verify recover-initialization.sh is mounted in postgres service."""
+    compose_data = _load_compose()
+    pg_volumes = [str(v) for v in compose_data["services"]["postgres"].get("volumes", [])]
+    assert any("recover-initialization.sh" in v for v in pg_volumes), (
+        f"Postgres service must mount recover-initialization.sh for initialization recovery. Volumes: {pg_volumes}"
+    )
+

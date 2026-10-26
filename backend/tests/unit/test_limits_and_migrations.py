@@ -48,7 +48,7 @@ def test_requirements_lock_and_ci_workflow_exist():
 
 
 def test_init_roles_sql_defines_least_privilege_roles():
-    """Verify init-roles.sql exists and defines rag_migrator and rag_app roles (F-12B)."""
+    """Verify init-roles.sql defines least-privilege roles, schema ownership, and default privileges (F-12B)."""
     repo_root = Path(__file__).resolve().parents[3]
     init_roles = repo_root / "deployment" / "docker" / "postgres" / "init-roles.sql"
     assert init_roles.exists(), f"init-roles.sql not found at {init_roles}"
@@ -60,4 +60,57 @@ def test_init_roles_sql_defines_least_privilege_roles():
     assert "INSERT" in content.upper(), "init-roles.sql must grant INSERT to rag_app"
     assert "UPDATE" in content.upper(), "init-roles.sql must grant UPDATE to rag_app"
     assert "DELETE" in content.upper(), "init-roles.sql must grant DELETE to rag_app"
+
+    # Schema ownership / management for migrator
+    assert "OWNER TO rag_migrator" in content or "OWNER TO \"rag_migrator\"" in content, (
+        "init-roles.sql must assign public schema ownership to rag_migrator"
+    )
+
+    # Future object permissions via ALTER DEFAULT PRIVILEGES FOR ROLE rag_migrator
+    assert "FOR ROLE rag_migrator" in content, (
+        "init-roles.sql must configure ALTER DEFAULT PRIVILEGES FOR ROLE rag_migrator so "
+        "tables created during migrations grant DML to rag_app"
+    )
+
+    # Explicit revocation of DDL from rag_app
+    assert "REVOKE CREATE ON SCHEMA public FROM rag_app" in content, (
+        "init-roles.sql must explicitly revoke CREATE ON SCHEMA public from rag_app"
+    )
+
+
+def test_alembic_url_selection_prefers_migration_database_url(monkeypatch):
+    """Verify Alembic consumes MIGRATION_DATABASE_URL over DATABASE_URL when present (F-12B)."""
+    from alembic.config import Config
+    from app.core.config import Settings
+
+    mig_url = "postgresql+asyncpg://rag_migrator:MigratorPass123!@localhost:5432/rag"
+    app_url = "postgresql+asyncpg://rag_app:AppPass456!@localhost:5432/rag"
+
+    test_settings = Settings(
+        database_url=app_url,
+        migration_database_url=mig_url,
+    )
+    assert test_settings.raw_migration_database_url == mig_url
+
+    # When migration_database_url is unset, falls back to database_url
+    fallback_settings = Settings(
+        database_url=app_url,
+        migration_database_url="",
+    )
+    assert fallback_settings.raw_migration_database_url == app_url
+
+
+def test_init_roles_sh_script_parameterizes_credentials():
+    """Verify 02-init-roles.sh safely delivers environment credentials to psql without command line argument exposure."""
+    repo_root = Path(__file__).resolve().parents[3]
+    init_sh = repo_root / "deployment" / "docker" / "postgres" / "02-init-roles.sh"
+    assert init_sh.exists(), f"02-init-roles.sh not found at {init_sh}"
+
+    content = init_sh.read_text(encoding="utf-8")
+    assert "RAG_APP_PASSWORD" in content, "02-init-roles.sh must reference RAG_APP_PASSWORD"
+    assert "RAG_MIGRATOR_PASSWORD" in content, "02-init-roles.sh must reference RAG_MIGRATOR_PASSWORD"
+    assert "-v app_pass=" not in content, "02-init-roles.sh must NOT pass app_pass in process arguments (argv)"
+    assert "-v migrator_pass=" not in content, "02-init-roles.sh must NOT pass migrator_pass in process arguments (argv)"
+    assert "psql -v ON_ERROR_STOP=1" in content, "02-init-roles.sh must invoke psql with error stopping"
+    assert "set -eu" in content, "02-init-roles.sh must use strict error handling"
 

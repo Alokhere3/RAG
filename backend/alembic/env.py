@@ -18,66 +18,47 @@ from app.core.config import get_settings
 from app.db.base import Base
 import app.models  # noqa: F401 - Register models for metadata discovery
 
-config = context.config
+config = getattr(context, "config", None)
 
-if config.config_file_name is not None:
+if config is not None and config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Centralize database URL from application configuration if not explicitly provided
-configured_url = config.get_main_option("sqlalchemy.url")
-if not configured_url:
-    settings = get_settings()
-    raw_url = settings.database_url.get_secret_value() if hasattr(settings.database_url, "get_secret_value") else str(settings.database_url)
-    config.set_main_option("sqlalchemy.url", raw_url)
 
-target_metadata = Base.metadata
+def resolve_migration_url(alembic_config=None, settings_override=None) -> str:
+    """Resolve and validate the database URL for Alembic migrations.
 
+    Enforces that:
+    1. Settings are loaded and production safety is validated across ALL migration paths.
+    2. In production, migrations strictly require and consume MIGRATION_DATABASE_URL with
+       the dedicated migration role (rag_migrator).
+    3. Overriding with a custom or runtime sqlalchemy.url in production is rejected if it
+       diverges from the validated MIGRATION_DATABASE_URL or shares the runtime role.
+    4. In development/testing, an explicitly supplied sqlalchemy.url is honored, or defaults
+       to raw_migration_database_url (with safe fallback to runtime DATABASE_URL).
+    """
+    cfg = alembic_config if alembic_config is not None else getattr(context, "config", None)
+    settings = settings_override if settings_override is not None else get_settings()
+    if settings.is_production:
+        settings.validate_production_safety()
+        settings.validate_migration_safety()
 
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-    )
+    configured_url = cfg.get_main_option("sqlalchemy.url") if cfg is not None else None
 
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-def do_run_migrations(connection: Connection) -> None:
-    """Execute migrations within a connection context."""
-    context.configure(connection=connection, target_metadata=target_metadata)
-
-    with context.begin_transaction():
-        context.run_migrations()
-
-
-async def run_async_migrations() -> None:
-    """Run migrations in 'online' mode using AsyncEngine."""
-    configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = config.get_main_option("sqlalchemy.url")
-
-    connectable = async_engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
+    if settings.is_production:
+        expected_url = settings.raw_migration_database_url
+        if configured_url:
+            # If an explicit URL was configured, it must match the validated MIGRATION_DATABASE_URL
+            if configured_url.strip() != expected_url.strip():
+                raise ValueError(
+                    "In production, Alembic migrations must execute using the configured MIGRATION_DATABASE_URL. "
+                    "Overriding with a diverging sqlalchemy.url or runtime role is prohibited."
+                )
+        return expected_url
+    else:
+        # Development / Testing
+        if configured_url and configured_url.strip():
+            return configured_url.strip()
+        return settings.raw_migration_database_url
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    asyncio.run(run_async_migrations())
-
-
-if context.is_offline_mode():
-    run_migrations_offline()
-else:
-    run_migrations_online()
+# Set the validated migration URL in alembic context configuration

@@ -49,12 +49,14 @@ def test_valid_production_configuration():
         cors_origins=["https://client.app.com", "https://admin.app.com"],
         jwt_secret="super-strong-production-secret-token",
         database_url="postgresql+asyncpg://prod_user:prod_pass@db.prod:5432/rag_prod",
+        migration_database_url="postgresql+asyncpg://mig_user:mig_pass@db.prod:5432/rag_prod",
         redis_url="redis://:redis_pass@redis.prod:6379/0",
     )
     assert prod_settings.is_production is True
     assert prod_settings.debug is False
     assert prod_settings.parsed_cors_origins == ["https://client.app.com", "https://admin.app.com"]
     assert prod_settings.raw_database_url == "postgresql+asyncpg://prod_user:prod_pass@db.prod:5432/rag_prod"
+    assert prod_settings.raw_migration_database_url == "postgresql+asyncpg://mig_user:mig_pass@db.prod:5432/rag_prod"
     assert prod_settings.raw_redis_url == "redis://:redis_pass@redis.prod:6379/0"
 
 
@@ -325,3 +327,85 @@ def test_to_public_config_contract():
     assert "redis_secret" not in serialized_str
     assert "super-confidential" not in serialized_str
     assert "sk-proj" not in serialized_str
+
+
+def test_settings_fails_when_app_env_missing(monkeypatch):
+    """Verify Settings() strictly requires explicit app_env and fails closed if missing."""
+    monkeypatch.delenv("APP_ENV", raising=False)
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)
+    errors = exc_info.value.errors()
+    assert any(err["loc"] == ("app_env",) for err in errors), f"Expected missing app_env error, got: {errors}"
+
+
+def test_settings_fails_even_if_pytest_env_var_present(monkeypatch):
+    """Verify presence of PYTEST_CURRENT_TEST cannot bypass app_env requirement or turn it into testing default."""
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/unit/test_config.py::test_dummy (call)")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)
+    errors = exc_info.value.errors()
+    assert any(err["loc"] == ("app_env",) for err in errors), f"Expected missing app_env error, got: {errors}"
+
+
+def test_settings_fails_when_app_env_empty(monkeypatch):
+    """Verify Settings() strictly rejects explicitly empty APP_ENV string."""
+    monkeypatch.setenv("APP_ENV", "")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)
+    errors = exc_info.value.errors()
+    assert any(
+        err["loc"] == ("app_env",) and "APP_ENV must be explicitly configured and non-empty" in err["msg"]
+        for err in errors
+    ), f"Expected non-empty APP_ENV validation error, got: {errors}"
+
+
+def test_settings_fails_when_app_env_whitespace(monkeypatch):
+    """Verify Settings() strictly rejects whitespace-only APP_ENV string."""
+    monkeypatch.setenv("APP_ENV", "   ")
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None)
+    errors = exc_info.value.errors()
+    assert any(
+        err["loc"] == ("app_env",) and "APP_ENV must be explicitly configured and non-empty" in err["msg"]
+        for err in errors
+    ), f"Expected non-empty APP_ENV validation error, got: {errors}"
+
+
+def test_settings_fails_when_app_env_none():
+    """Verify Settings() strictly rejects app_env=None explicitly passed."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None, app_env=None)
+    errors = exc_info.value.errors()
+    assert any(
+        err["loc"] == ("app_env",) and "APP_ENV must be explicitly configured and non-empty" in err["msg"]
+        for err in errors
+    ), f"Expected non-empty APP_ENV validation error, got: {errors}"
+
+
+def test_settings_valid_development_value():
+    """Verify Settings() accepts valid development APP_ENV and configures development mode."""
+    settings = Settings(_env_file=None, app_env="development")
+    assert settings.app_env == Environment.DEVELOPMENT
+    assert settings.is_development is True
+    assert settings.is_production is False
+    assert settings.is_testing is False
+
+
+def test_settings_valid_production_value():
+    """Verify Settings() accepts valid production APP_ENV with required production credentials."""
+    settings = Settings(
+        _env_file=None,
+        app_env="production",
+        debug=False,
+        cors_origins=["https://dashboard.example.com"],
+        jwt_secret="super-strong-production-secret-token-32-chars",
+        database_url="postgresql+asyncpg://app_user:app_pass@127.0.0.1:5432/rag_prod",
+        migration_database_url="postgresql+asyncpg://mig_user:mig_pass@127.0.0.1:5432/rag_prod",
+        redis_url="redis://:redis_pass@127.0.0.1:6379/0",
+        auth_cookie_secure=True,
+    )
+    assert settings.app_env == Environment.PRODUCTION
+    assert settings.is_production is True
+    assert settings.is_development is False
+    assert settings.is_testing is False

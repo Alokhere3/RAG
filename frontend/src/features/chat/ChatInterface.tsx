@@ -174,9 +174,8 @@ export const ChatInterface: React.FC = () => {
             conversations.map((conv) => (
               <div
                 key={conv.id}
-                className={`chat-conversation-item ${
-                  conv.id === activeConversationId ? "active" : ""
-                }`}
+                className={`chat-conversation-item ${conv.id === activeConversationId ? "active" : ""
+                  }`}
                 onClick={() => setActiveConversationId(conv.id)}
                 data-testid={`conversation-item-${conv.id}`}
               >
@@ -290,6 +289,9 @@ export const ChatInterface: React.FC = () => {
                               title="Click to view verified source chunk"
                             >
                               📄 {c.document_title}
+                              <span className="citation-chunk">
+                                Chunk #{c.chunk_index}
+                              </span>
                               <span className="citation-score">
                                 {Math.round(c.relevance_score * 100)}%
                               </span>

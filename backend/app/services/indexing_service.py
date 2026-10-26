@@ -231,9 +231,12 @@ class IndexingService:
         # Check PostgreSQL native pgvector support
         if dialect_name == "postgresql":
             # Native pgvector cosine distance operator: <=>
-            stmt = select(DocumentChunk).order_by(
+            distance_expr = (
                 DocumentChunk.embedding.cosine_distance(query_vec)
+                if hasattr(DocumentChunk.embedding, "cosine_distance")
+                else DocumentChunk.embedding.op("<=>")(query_vec)
             )
+            stmt = select(DocumentChunk).order_by(distance_expr)
             if document_ids:
                 stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
             stmt = stmt.limit(limit)

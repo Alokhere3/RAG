@@ -59,6 +59,8 @@ def _key(ip_address: str | None, email: str) -> str:
 async def enforce_login_rate_limit(ip_address: str | None, email: str) -> None:
     """Throttle repeated attempts; falls back safely to bounded in-memory limiter on Redis failure."""
     settings = get_settings()
+    if settings.app_env.strip().lower() in {"development", "dev", "local"}:
+        return
     key = _key(ip_address, email)
     count: int
 

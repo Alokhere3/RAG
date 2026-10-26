@@ -2,7 +2,7 @@
 
 import uuid
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.llm.base import LlmUsage
 
@@ -16,6 +16,30 @@ class Citation(BaseModel):
     chunk_index: int = Field(description="0-indexed position within source document")
     relevance_score: float = Field(description="Vector cosine similarity score [0.0 - 1.0]")
     snippet: str = Field(description="Excerpt of the chunk content")
+    char_offset_start: Optional[int] = Field(
+        default=None,
+        description="Optional start character offset of excerpt within source chunk content",
+    )
+    char_offset_end: Optional[int] = Field(
+        default=None,
+        description="Optional end character offset of excerpt within source chunk content",
+    )
+
+    @model_validator(mode="after")
+    def validate_passage_offsets(self) -> "Citation":
+        """Validate character offsets when provided."""
+        start = self.char_offset_start
+        end = self.char_offset_end
+        if start is not None and end is not None:
+            if start < 0:
+                raise ValueError(f"char_offset_start cannot be negative: {start}")
+            if end < start:
+                raise ValueError(
+                    f"char_offset_end ({end}) cannot be less than char_offset_start ({start})"
+                )
+        elif (start is None) != (end is None):
+            raise ValueError("Both char_offset_start and char_offset_end must be provided together")
+        return self
 
 
 class RagQueryRequest(BaseModel):

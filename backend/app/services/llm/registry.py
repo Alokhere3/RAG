@@ -5,6 +5,7 @@ from typing import Optional
 from app.core.config import Settings, get_settings
 from app.services.llm.base import BaseLlmProvider
 from app.services.llm.deterministic import DeterministicLlmProvider
+from app.services.llm.gemini import GeminiLlmProvider
 from app.services.llm.openai import OpenAILlmProvider
 
 
@@ -34,7 +35,15 @@ def create_llm_provider(
             max_retries=max_retries,
         )
 
-    raise ValueError(f"Unsupported LLM provider: '{provider_name}'. Supported: deterministic, openai")
+    if clean_name == "gemini":
+        return GeminiLlmProvider(
+            api_key=api_key,
+            model=model or "gemini-1.5-flash",
+            timeout_seconds=timeout_seconds,
+            max_retries=max_retries,
+        )
+
+    raise ValueError(f"Unsupported LLM provider: '{provider_name}'. Supported: deterministic, openai, gemini")
 
 
 def get_default_llm_provider(settings: Optional[Settings] = None) -> BaseLlmProvider:
@@ -50,7 +59,10 @@ def get_default_llm_provider(settings: Optional[Settings] = None) -> BaseLlmProv
             )
         provider_name = "deterministic"
 
-    raw_key = cfg.openai_api_key.get_secret_value() if cfg.openai_api_key else None
+    if provider_name == "gemini":
+        raw_key = cfg.gemini_api_key.get_secret_value() if cfg.gemini_api_key else None
+    else:
+        raw_key = cfg.openai_api_key.get_secret_value() if cfg.openai_api_key else None
 
     return create_llm_provider(
         provider_name=provider_name,

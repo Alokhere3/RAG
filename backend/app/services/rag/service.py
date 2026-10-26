@@ -14,6 +14,10 @@ from app.models.chunk import DocumentChunk
 from app.services.indexing_service import IndexingService, indexing_service as default_indexing_service
 from app.services.llm.base import BaseLlmProvider
 from app.services.llm.registry import get_default_llm_provider
+from app.services.rag.citation import (
+    extract_citation_snippet,
+    extract_claims_for_chunk,
+)
 from app.services.rag.prompt import RagPromptBuilder
 from app.services.rag.schemas import Citation, RagAnswer, RagQueryRequest
 
@@ -157,7 +161,14 @@ class RagService:
             for chunk in packed_chunks:
                 score = getattr(chunk, "similarity_score", 1.0)
                 title = getattr(chunk, "document_title", "Document")
-                snippet = chunk.content[:200] + ("..." if len(chunk.content) > 200 else "")
+                chunk_claims = extract_claims_for_chunk(raw_answer, chunk.chunk_index)
+                claim_context = " ".join(chunk_claims) if chunk_claims else ""
+                snippet, start_offset, end_offset = extract_citation_snippet(
+                    content=chunk.content,
+                    query=query_text,
+                    answer=raw_answer,
+                    claim=claim_context,
+                )
                 citations.append(
                     Citation(
                         document_id=chunk.document_id,
@@ -166,6 +177,8 @@ class RagService:
                         chunk_index=chunk.chunk_index,
                         relevance_score=round(float(score), 4),
                         snippet=snippet,
+                        char_offset_start=start_offset,
+                        char_offset_end=end_offset,
                     )
                 )
 

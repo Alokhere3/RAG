@@ -31,6 +31,7 @@ class VectorType(TypeDecorator):
 
     impl = sa.JSON
     cache_ok = True
+    comparator_factory = Vector.comparator_factory
 
     def __init__(self, dimensions: Optional[int] = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

@@ -70,6 +70,10 @@ class IngestionWorker:
 
 async def main() -> None:
     """CLI entrypoint for standalone background worker."""
+    settings = get_settings()
+    if settings.is_production:
+        settings.validate_production_safety()
+
     worker = IngestionWorker()
 
     def _handle_signal(*_):

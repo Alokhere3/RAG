@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     """Central application settings object."""
 
     model_config = SettingsConfigDict(
-        env_file=None if "PYTEST_CURRENT_TEST" in os.environ else ".env",
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -74,9 +74,9 @@ class Settings(BaseSettings):
     # Application Layer
     # -------------------------------------------------------------------------
     app_env: Environment = Field(
-        default=Environment.DEVELOPMENT,
-        description="Deployment environment name",
+        description="Deployment environment name [development, testing, staging, production]",
     )
+
     app_name: str = Field(
         default="RAG Platform",
         description="Public platform identifier",
@@ -338,7 +338,12 @@ class Settings(BaseSettings):
     @field_validator("app_env", mode="before")
     @classmethod
     def normalize_and_validate_environment(cls, v: Any) -> Environment:
-        """Normalize environment strings, mapping legacy 'test' to 'testing'."""
+        """Normalize environment strings, requiring explicit configuration."""
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError(
+                "APP_ENV must be explicitly configured and non-empty (e.g. 'development', 'staging', 'production', 'testing'). "
+                "Silent fallback to development is prohibited."
+            )
         if isinstance(v, Environment):
             return v
         if isinstance(v, str):
@@ -482,8 +487,13 @@ class Settings(BaseSettings):
             env_val = data.get("app_env", "")
             if isinstance(env_val, Environment):
                 env_val = env_val.value
-            if str(env_val).lower() == "production" and "auth_cookie_secure" not in data:
-                data["auth_cookie_secure"] = True
+            if str(env_val).lower() == "production":
+                # If auth_cookie_secure is not explicitly supplied or is empty, default to True in production
+                if "auth_cookie_secure" not in data or data.get("auth_cookie_secure") in (None, ""):
+                    data["auth_cookie_secure"] = True
+            else:
+                if data.get("auth_cookie_secure") in (None, ""):
+                    data["auth_cookie_secure"] = False
         return data
 
     @model_validator(mode="after")
@@ -505,27 +515,106 @@ class Settings(BaseSettings):
             if self.raw_database_url.startswith("sqlite"):
                 raise ValueError("SQLite database cannot be used in production environment.")
 
-            # 4. JWT Secret is required and must have sufficient entropy in production
+            # 4. Defensible policy for production JWT secrets
             raw_secret = self.jwt_secret.get_secret_value().strip()
             if not raw_secret:
-                raise ValueError("JWT_SECRET must be configured and non-empty in production environment.")
+                raise ValueError(
+                    "JWT_SECRET must be configured and non-empty in production environment. "
+                    "Generate a cryptographically secure key via 'openssl rand -hex 32' or 'python -c \"import secrets; print(secrets.token_hex(32))\"'."
+                )
             if len(raw_secret) < 32:
                 raise ValueError(
-                    "JWT_SECRET must be at least 32 characters in production environment for cryptographic security."
+                    "JWT_SECRET must be at least 32 characters in production environment. "
+                    "Generate a cryptographically secure key via 'openssl rand -hex 32' or 'python -c \"import secrets; print(secrets.token_hex(32))\"'."
+                )
+
+            # Reject trivial repetitive patterns and low character diversity (< 4 distinct characters)
+            if len(set(raw_secret)) < 4:
+                raise ValueError(
+                    "JWT_SECRET is trivial or repetitive (insufficient distinct characters). "
+                    "A cryptographically secure key is required in production (e.g. 'openssl rand -hex 32')."
+                )
+
+            # Reject repeated short cycles (e.g. "abababab..." or "123123123...")
+            for cycle_len in (1, 2, 3, 4):
+                cycle = raw_secret[:cycle_len]
+                if cycle * (len(raw_secret) // cycle_len) == raw_secret[: cycle_len * (len(raw_secret) // cycle_len)] and len(set(raw_secret)) <= cycle_len:
+                    raise ValueError(
+                        "JWT_SECRET consists of a repeating pattern. "
+                        "A cryptographically secure key is required in production (e.g. 'openssl rand -hex 32')."
+                    )
+
+            # Reject known weak placeholder phrases without claiming heuristics prove true randomness
+            lower_secret = raw_secret.lower()
+            known_placeholders = (
+                "placeholder",
+                "changeme",
+                "defaultsecret",
+                "password123",
+                "secretkey123",
+                "your-secret-key",
+                "your-jwt-secret",
+                "replace-me",
+                "replace_me",
+                "example-secret",
+            )
+            if any(p in lower_secret for p in known_placeholders):
+                raise ValueError(
+                    "JWT_SECRET contains a known placeholder value. "
+                    "Operators must generate a unique, cryptographically secure key (e.g. 'openssl rand -hex 32')."
                 )
 
             # 5. Enforce Secure Cookies in production (F-05)
             if not self.auth_cookie_secure:
                 raise ValueError("AUTH_COOKIE_SECURE must be True in production environment.")
 
-            # 6. Reject default / placeholder database credentials in production (F-07)
-            raw_db = self.raw_database_url.lower()
-            weak_patterns = ["rag:rag@", "postgres:postgres@", "admin:admin@", ":password@", ":changeme@"]
+            # 6. Database Runtime Role Validation (F-07, F-12B)
+            raw_db = self.raw_database_url.strip()
+            if not raw_db:
+                raise ValueError("DATABASE_URL must be configured and non-empty in production environment.")
+
+            def _extract_db_user(url: str) -> str:
+                match = re.search(r"://([^:@/]+)(?::[^@]*)?@", url)
+                return match.group(1).lower() if match else ""
+
+            def _extract_db_password(url: str) -> str:
+                match = re.search(r"://[^:@/]+:([^@]+)@", url)
+                return match.group(1) if match else ""
+
+            app_user = _extract_db_user(raw_db)
+            if not app_user:
+                raise ValueError("DATABASE_URL must include a valid username in production environment.")
+
+            app_pass = _extract_db_password(raw_db)
+            if not app_pass:
+                raise ValueError("DATABASE_URL must include a non-empty password in production environment.")
+
+            # Reject default / placeholder database credentials in production
+            weak_patterns = [
+                "rag:rag@",
+                "postgres:postgres@",
+                "admin:admin@",
+                ":password@",
+                ":changeme@",
+                ":rag_app_dev@",
+                ":rag_migrator_dev@",
+                ":rag_dev_init_pass_only@",
+                ":rag_app_dev_pass_only@",
+                ":rag_migrator_dev_pass_only@",
+                "rag_app:rag_app_dev@",
+                "rag_migrator:rag_migrator_dev@",
+            ]
+            raw_db_lower = raw_db.lower()
             for wp in weak_patterns:
-                if wp in raw_db:
+                if wp in raw_db_lower:
                     raise ValueError(
-                        "Default or placeholder database credentials are not permitted in production."
+                        f"Default or placeholder database credentials are not permitted in production: pattern '{wp}'."
                     )
+
+            # If migration_database_url is explicitly configured, validate it
+            raw_mig_explicit = self.migration_database_url.get_secret_value().strip()
+            if raw_mig_explicit:
+                self.validate_migration_safety()
 
             if "postgres_password" in self.model_fields_set and self.postgres_password.lower() in {
                 "rag",
@@ -533,6 +622,11 @@ class Settings(BaseSettings):
                 "password",
                 "admin",
                 "changeme",
+                "rag_app_dev",
+                "rag_migrator_dev",
+                "rag_dev_init_pass_only",
+                "rag_app_dev_pass_only",
+                "rag_migrator_dev_pass_only",
             }:
                 raise ValueError(
                     "POSTGRES_PASSWORD is set to an insecure default/placeholder in production."
@@ -561,6 +655,78 @@ class Settings(BaseSettings):
                 )
 
         return self
+
+    def validate_migration_safety(self) -> None:
+        """Validate dedicated migration credentials when executing schema migrations (F-07, F-12B).
+
+        Enforces that:
+        1. In production, MIGRATION_DATABASE_URL must be configured, non-empty, and distinct from DATABASE_URL.
+        2. Fallback to runtime DATABASE_URL is strictly prohibited in production.
+        3. Migration role (rag_migrator) cannot share user identity with runtime role (rag_app).
+        4. Valid distinct passwords are required and default/placeholder credentials are rejected.
+        """
+        if not self.is_production:
+            return
+
+        raw_db = self.raw_database_url.strip()
+        raw_mig_explicit = self.migration_database_url.get_secret_value().strip()
+
+        if not raw_mig_explicit:
+            raise ValueError(
+                "MIGRATION_DATABASE_URL must be configured and non-empty in production environment. "
+                "Fallback to DATABASE_URL is strictly prohibited in production."
+            )
+
+        if raw_mig_explicit == raw_db:
+            raise ValueError(
+                "DATABASE_URL and MIGRATION_DATABASE_URL cannot be identical in production environment. "
+                "Distinct runtime (DML) and migration (DDL) roles are required."
+            )
+
+        def _extract_db_user(url: str) -> str:
+            match = re.search(r"://([^:@/]+)(?::[^@]*)?@", url)
+            return match.group(1).lower() if match else ""
+
+        def _extract_db_password(url: str) -> str:
+            match = re.search(r"://[^:@/]+:([^@]+)@", url)
+            return match.group(1) if match else ""
+
+        app_user = _extract_db_user(raw_db)
+        mig_user = _extract_db_user(raw_mig_explicit)
+
+        if not mig_user:
+            raise ValueError("MIGRATION_DATABASE_URL must include a valid username in production environment.")
+
+        if app_user and app_user == mig_user:
+            raise ValueError(
+                f"DATABASE_URL and MIGRATION_DATABASE_URL must not share the same user ('{app_user}') "
+                "in production environment. Distinct runtime (DML) and migration (DDL) roles are required."
+            )
+
+        mig_pass = _extract_db_password(raw_mig_explicit)
+        if not mig_pass:
+            raise ValueError("MIGRATION_DATABASE_URL must include a non-empty password in production environment.")
+
+        weak_patterns = [
+            "rag:rag@",
+            "postgres:postgres@",
+            "admin:admin@",
+            ":password@",
+            ":changeme@",
+            ":rag_app_dev@",
+            ":rag_migrator_dev@",
+            ":rag_dev_init_pass_only@",
+            ":rag_app_dev_pass_only@",
+            ":rag_migrator_dev_pass_only@",
+            "rag_app:rag_app_dev@",
+            "rag_migrator:rag_migrator_dev@",
+        ]
+        raw_mig_lower = raw_mig_explicit.lower()
+        for wp in weak_patterns:
+            if wp in raw_mig_lower:
+                raise ValueError(
+                    f"Default or placeholder migration database credentials are not permitted in production: pattern '{wp}'."
+                )
 
     # -------------------------------------------------------------------------
     # Properties & Utilities
@@ -592,9 +758,15 @@ class Settings(BaseSettings):
 
     @property
     def raw_migration_database_url(self) -> str:
-        """Return unmasked migration database URL, falling back to runtime DATABASE_URL."""
-        migration_url = self.migration_database_url.get_secret_value()
-        return migration_url if migration_url else self.raw_database_url
+        """Return unmasked migration database URL. In production, fallback is prohibited."""
+        migration_url = self.migration_database_url.get_secret_value().strip()
+        if not migration_url:
+            if self.is_production:
+                raise ValueError(
+                    "MIGRATION_DATABASE_URL is required in production and cannot fall back to DATABASE_URL."
+                )
+            return self.raw_database_url
+        return migration_url
 
     @property
     def parsed_cors_origins(self) -> List[str]:

@@ -1,10 +1,17 @@
 """Shared pytest fixtures."""
 
+import os
+
+# Explicit test harness configuration: ensure APP_ENV is explicitly set to testing
+# before any application modules or settings are loaded.
+os.environ.setdefault("APP_ENV", "testing")
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.config import Settings, get_settings
+
 
 
 @pytest.fixture

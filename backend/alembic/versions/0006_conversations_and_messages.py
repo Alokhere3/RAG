@@ -1,7 +1,7 @@
 """Create conversations and messages tables for Phase 7.
 
 Revision ID: 0006_conversations_and_messages
-Revises: 0005_document_chunks_and_embeddings
+Revises: 0005_chunks_and_embeddings
 Create Date: 2026-10-23 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "0006_conversations_and_messages"
-down_revision: Union[str, None] = "0005_document_chunks_and_embeddings"
+down_revision: Union[str, None] = "0005_chunks_and_embeddings"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
