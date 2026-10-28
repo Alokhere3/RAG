@@ -34,7 +34,9 @@ dev.db
 
 # Local storage, uploads, artifacts & backups (F-02)
 data/
-storage/
+/storage/
+data/storage/
+!app/services/storage/
 backups/
 artifacts/
 uploads/

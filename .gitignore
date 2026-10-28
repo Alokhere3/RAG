@@ -76,5 +76,7 @@ dev.db
 *.sqlite
 *.sqlite3
 data/
-storage/
+/storage/
+backend/data/storage/
+!backend/app/services/storage/
 backups/
