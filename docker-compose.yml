@@ -122,6 +122,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-}
     volumes:
       - storage_data:/app/data/storage
     depends_on:
