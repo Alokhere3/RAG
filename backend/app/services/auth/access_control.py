@@ -101,3 +101,34 @@ class AccessControlService:
                 code="NOT_FOUND",
             )
         logger.debug("DOCUMENT_ACCESS_RESOLUTION_COMPLETED user_id=%s access=GRANTED", user.id)
+
+    @classmethod
+    def can_access_conversation(cls, user: User, conversation: Any) -> bool:
+        """Check if user can view or manage conversation. Admin has full access; User has owner access."""
+        if user.status != UserStatus.ACTIVE:
+            return False
+        if user.role == UserRole.ADMIN:
+            return True
+        return str(conversation.user_id) == str(user.id)
+
+    @classmethod
+    def authorize_conversation_access(cls, user: User, conversation: Any) -> None:
+        """Authorize user for conversation access or raise NotFoundError (anti-enumeration 404)."""
+        logger.debug(
+            "CONVERSATION_ACCESS_RESOLUTION_STARTED user_id=%s conv_id=%s owner_id=%s",
+            user.id,
+            getattr(conversation, "id", None),
+            getattr(conversation, "user_id", None),
+        )
+        if not cls.can_access_conversation(user, conversation):
+            logger.warning(
+                "CONVERSATION_ACCESS_DENIED user_id=%s conv_id=%s",
+                user.id,
+                getattr(conversation, "id", None),
+            )
+            from app.core.errors import NotFoundError
+            raise NotFoundError(
+                message="Conversation not found.",
+                code="NOT_FOUND",
+            )
+        logger.debug("CONVERSATION_ACCESS_RESOLUTION_COMPLETED user_id=%s access=GRANTED", user.id)

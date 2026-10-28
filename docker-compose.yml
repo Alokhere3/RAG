@@ -17,9 +17,6 @@ services:
       - ./deployment/docker/postgres/rotate-role-passwords.sh:/usr/local/bin/rotate-role-passwords.sh:ro
       - ./deployment/docker/postgres/rotate-role-passwords.sql:/etc/postgresql/rotate-role-passwords.sql:ro
       - ./deployment/docker/postgres/recover-initialization.sh:/usr/local/bin/recover-initialization.sh:ro
-
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-rag}"]
       interval: 5s
@@ -44,8 +41,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi"]
       interval: 5s
@@ -86,6 +81,7 @@ services:
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-}
       STORAGE_DIR: /app/data/storage
       DEBUG: ${DEBUG:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-}
       LLM_MODEL: ${LLM_MODEL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -94,8 +90,6 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
     volumes:
       - storage_data:/app/data/storage
-    ports:
-      - "127.0.0.1:${BACKEND_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy

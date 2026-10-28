@@ -715,7 +715,7 @@ class EphemeralPostgresCluster:
                 ["docker", "info"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=2,
+                timeout=10,
                 check=False,
             )
             return res.returncode == 0

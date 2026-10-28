@@ -1,0 +1,24 @@
+# ==============================================================================
+# RAG Platform - Local Development Docker Compose Override
+# ==============================================================================
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Enables loopback host port mappings for local developer convenience:
+# - PostgreSQL: 127.0.0.1:5432
+# - Redis:      127.0.0.1:6379
+# - Backend:    127.0.0.1:8001
+# ==============================================================================
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+
+  backend:
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8001}:8000"

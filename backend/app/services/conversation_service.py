@@ -11,6 +11,8 @@ from sqlalchemy.orm import selectinload
 from app.core.errors import NotFoundError
 from app.models.conversation import Conversation, Message
 from app.models.user import User, UserRole
+from app.services.auth.access_control import AccessControlService
+from app.services.rag.sanitizer import sanitize_answer
 from app.services.rag.schemas import RagQueryRequest
 from app.services.rag.service import RagService, INSUFFICIENT_EVIDENCE_ANSWER
 
@@ -92,15 +94,8 @@ class ConversationService:
         if not conversation:
             raise NotFoundError("Conversation not found.")
 
-        # Non-admins can only access their own conversations (prevent ID enumeration)
-        if user.role != UserRole.ADMIN and conversation.user_id != user.id:
-            logger.warning(
-                "UNAUTHORIZED_CONVERSATION_ACCESS conv_id=%s requester=%s owner=%s",
-                conversation_id,
-                user.id,
-                conversation.user_id,
-            )
-            raise NotFoundError("Conversation not found.")
+        # Enforce conversation ownership boundaries via centralized access control
+        AccessControlService.authorize_conversation_access(user, conversation)
 
         return conversation
 
@@ -160,12 +155,13 @@ class ConversationService:
         comp_tokens = rag_answer.usage.completion_tokens if rag_answer.usage else None
         tot_tokens = rag_answer.usage.total_tokens if rag_answer.usage else None
 
-        # 6. Persist assistant message
+        # 6. Sanitize answer for persistence and user presentation
+        sanitized_answer = sanitize_answer(rag_answer.answer)
         asst_now = datetime.now(timezone.utc)
         assistant_message = Message(
             conversation_id=conversation.id,
             role="assistant",
-            content=rag_answer.answer,
+            content=sanitized_answer,
             citations=citations_data,
             latency_ms=rag_answer.latency_ms,
             prompt_tokens=prompt_tokens,

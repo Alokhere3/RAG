@@ -504,12 +504,28 @@ class Settings(BaseSettings):
             if self.debug:
                 raise ValueError("DEBUG mode cannot be enabled in production environment.")
 
-            # 2. Wildcard CORS must not be permitted in production
+            # 2. Production CORS validation (fail safely if missing, empty, wildcard, or malformed)
+            if not self.parsed_cors_origins:
+                raise ValueError(
+                    "Empty CORS_ORIGINS is not allowed in production environment. "
+                    "Specify explicit trusted domains in CORS_ORIGINS (e.g. 'https://rag.example.com')."
+                )
+
             if "*" in self.parsed_cors_origins:
                 raise ValueError(
                     "Wildcard CORS ('*') is not allowed in production environment. "
                     "Specify explicit trusted domains in CORS_ORIGINS."
                 )
+
+            for origin in self.parsed_cors_origins:
+                if not origin.startswith(("https://", "http://")):
+                    raise ValueError(
+                        f"Invalid CORS origin '{origin}'. Production CORS origins must include a valid scheme (e.g. 'https://domain.com')."
+                    )
+                if origin.endswith("/") and not origin.endswith("://"):
+                    raise ValueError(
+                        f"Invalid CORS origin '{origin}'. CORS origins must not include a trailing slash or path."
+                    )
 
             # 3. SQLite is prohibited in production
             if self.raw_database_url.startswith("sqlite"):

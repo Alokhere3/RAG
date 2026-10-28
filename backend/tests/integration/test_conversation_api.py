@@ -224,10 +224,17 @@ async def test_c004_c014_user_cannot_access_another_users_conversation(chat_test
     )
     assert post_resp.status_code == 404
 
+    # User B attempts to fetch Alice's conversation message history -> 404
+    history_resp = await client.get(
+        f"/api/v1/conversations/{conv_id}/messages",
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert history_resp.status_code == 404
+
 
 @pytest.mark.asyncio
-async def test_c005_c006_send_message_invokes_rag_and_returns_citations(chat_test_env):
-    """C005 & C006: Posting message invokes RAG and persists grounded answer with real citations."""
+async def test_c005_c006_send_message_returns_answer_only_contract(chat_test_env):
+    """C005 & C006: Posting message invokes RAG and returns target answer-only public contract."""
     client, token_a, _, _, _ = chat_test_env
 
     # 1. Create conversation
@@ -246,14 +253,22 @@ async def test_c005_c006_send_message_invokes_rag_and_returns_citations(chat_tes
     assert msg_resp.status_code == 201
     data = msg_resp.json()
 
-    assert data["role"] == "assistant"
-    assert len(data["content"]) > 0
-    # Assistant response should have verified citations
-    assert data["citations"] is not None
-    assert len(data["citations"]) > 0
-    for citation in data["citations"]:
-        assert citation["document_title"] == "company_handbook.txt"
-        assert citation["relevance_score"] > 0.0
+    # Target public contract: exactly and exclusively {"answer": "..."}
+    assert list(data.keys()) == ["answer"]
+    assert isinstance(data["answer"], str)
+    assert len(data["answer"]) > 0
+
+    # Ensure internal metadata is NOT exposed in the public response
+    assert "citations" not in data
+    assert "latency_ms" not in data
+    assert "role" not in data
+    assert "id" not in data
+    assert "conversation_id" not in data
+    assert "usage" not in data
+
+    # Ensure internal citation markers like [Doc: ..., Chunk: ...] did not leak into answer text
+    assert "[Doc:" not in data["answer"]
+    assert "[Chunk" not in data["answer"]
 
 
 @pytest.mark.asyncio
@@ -282,6 +297,14 @@ async def test_c010_message_pagination_and_ordering(chat_test_env):
     assert data["total"] == 2  # 1 user + 1 assistant
     assert data["items"][0]["role"] == "user"
     assert data["items"][1]["role"] == "assistant"
+
+    # History exposes only authorized display fields, no internal RAG metadata
+    asst_item = data["items"][1]
+    assert set(asst_item.keys()) == {"id", "conversation_id", "role", "content", "created_at"}
+    assert "citations" not in asst_item
+    assert "latency_ms" not in asst_item
+    assert "[Doc:" not in asst_item["content"]
+    assert "[Chunk" not in asst_item["content"]
 
 
 @pytest.mark.asyncio
@@ -329,3 +352,85 @@ async def test_c009_delete_conversation_cascades_messages(chat_test_env):
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_exact_public_chat_contract_serialization(chat_test_env):
+    """Verify that serialized public chat response contains strictly the 'answer' key and no internal RAG fields."""
+    client, token_a, _, _, _ = chat_test_env
+    c_resp = await client.post("/api/v1/conversations", headers={"Authorization": f"Bearer {token_a}"})
+    conv_id = c_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/v1/conversations/{conv_id}/messages",
+        json={"content": "What are the standard work hours?"},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert resp.status_code == 201
+    raw_payload = resp.json()
+    assert list(raw_payload.keys()) == ["answer"]
+    assert "work hours" in raw_payload["answer"].lower() or "9 am" in raw_payload["answer"].lower()
+    assert "[Doc:" not in raw_payload["answer"]
+    assert "[Chunk" not in raw_payload["answer"]
+
+
+@pytest.mark.asyncio
+async def test_message_history_sanitizes_legacy_markers_and_excludes_metadata(chat_test_env):
+    """Verify history endpoint excludes citations, latency, tokens and normalizes markers."""
+    client, token_a, _, _, _ = chat_test_env
+    c_resp = await client.post("/api/v1/conversations", headers={"Authorization": f"Bearer {token_a}"})
+    conv_id = c_resp.json()["id"]
+
+    await client.post(
+        f"/api/v1/conversations/{conv_id}/messages",
+        json={"content": "What are the standard work hours?"},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+
+    list_resp = await client.get(
+        f"/api/v1/conversations/{conv_id}/messages",
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+    assert list_resp.status_code == 200
+    items = list_resp.json()["items"]
+    assert len(items) == 2
+    for item in items:
+        # Strictly authorized fields only
+        assert set(item.keys()) == {"id", "conversation_id", "role", "content", "created_at"}
+        assert "citations" not in item
+        assert "latency_ms" not in item
+        assert "prompt_tokens" not in item
+        assert "[Doc:" not in item["content"]
+        assert "[Chunk" not in item["content"]
+
+
+@pytest.mark.asyncio
+async def test_internal_citations_persisted_in_database_for_auditing(chat_test_env):
+    """Verify internal citation records remain persisted in PostgreSQL/SQLite for internal compliance and auditing."""
+    client, token_a, _, _, _ = chat_test_env
+    c_resp = await client.post("/api/v1/conversations", headers={"Authorization": f"Bearer {token_a}"})
+    conv_id = uuid.UUID(c_resp.json()["id"])
+
+    await client.post(
+        f"/api/v1/conversations/{conv_id}/messages",
+        json={"content": "What is the annual vacation allowance?"},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+
+    # Use application session to inspect internal DB records
+    from app.models.conversation import Message as MessageModel
+    from sqlalchemy import select
+    from app.db.session import get_db
+
+    async for session in app.dependency_overrides[get_db]():
+        stmt = select(MessageModel).where(
+            MessageModel.conversation_id == conv_id,
+            MessageModel.role == "assistant",
+        )
+        res = await session.execute(stmt)
+        asst_record = res.scalar_one_or_none()
+        assert asst_record is not None
+        # Internal citations must remain preserved in storage
+        assert asst_record.citations is not None
+        assert len(asst_record.citations) > 0
+        assert asst_record.citations[0]["document_title"] == "company_handbook.txt"

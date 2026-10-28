@@ -8,9 +8,9 @@ import type {
 import type { AuthUser, LoginResponse } from "../auth/types";
 import type { DocumentItem, DocumentListResponse, IngestionJobItem, IngestionStatusResponse } from "../types/document";
 import type {
+  ChatResponse,
   ConversationItem,
   ConversationListResponse,
-  MessageItem,
   MessageListResponse,
 } from "../types/chat";
 import type {
@@ -224,7 +224,7 @@ export class ApiClient {
     return (await response.json()) as MessageListResponse;
   }
 
-  async sendMessage(conversationId: string, content: string): Promise<MessageItem> {
+  async sendMessage(conversationId: string, content: string): Promise<ChatResponse> {
     const response = await this.request(`/api/v1/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -234,7 +234,7 @@ export class ApiClient {
       const err = await response.json().catch(() => null);
       throw new Error(err?.error?.message || "Failed to send message.");
     }
-    return (await response.json()) as MessageItem;
+    return (await response.json()) as ChatResponse;
   }
 
   async getConfig(): Promise<PublicConfigResponse> {

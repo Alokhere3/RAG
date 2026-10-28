@@ -50,15 +50,19 @@ class MessageCreate(BaseModel):
     )
 
 
+class ChatResponse(BaseModel):
+    """Public answer-only response for chat queries."""
+
+    answer: str
+
+
 class MessageResponse(BaseModel):
-    """Message turn representation."""
+    """Message turn representation in conversation history."""
 
     id: uuid.UUID
     conversation_id: uuid.UUID
     role: str
     content: str
-    citations: Optional[List[Dict[str, Any]]] = None
-    latency_ms: Optional[float] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

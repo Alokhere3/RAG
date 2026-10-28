@@ -62,7 +62,7 @@ describe("ChatInterface (Phase 7 - Chunk 7.5)", () => {
     });
   });
 
-  it("sends a message, renders assistant answer, and toggles citations preview card", async () => {
+  it("sends a message, renders assistant answer-only response, and verifies no citation elements exist", async () => {
     vi.spyOn(apiClient, "getConversations").mockResolvedValue({
       items: [
         {
@@ -86,22 +86,7 @@ describe("ChatInterface (Phase 7 - Chunk 7.5)", () => {
     });
 
     vi.spyOn(apiClient, "sendMessage").mockResolvedValue({
-      id: "asst-msg-1",
-      conversation_id: "conv-1",
-      role: "assistant",
-      content: "Annual vacation allowance is 25 days [1].",
-      latency_ms: 32.5,
-      citations: [
-        {
-          document_id: "doc-1",
-          document_title: "company_handbook.pdf",
-          chunk_id: "chunk-1",
-          chunk_index: 0,
-          relevance_score: 0.94,
-          snippet: "Annual vacation allowance is 25 days for all full-time employees.",
-        },
-      ],
-      created_at: new Date().toISOString(),
+      answer: "Annual vacation allowance is 25 days.",
     });
 
     render(<ChatInterface />);
@@ -120,19 +105,10 @@ describe("ChatInterface (Phase 7 - Chunk 7.5)", () => {
     await waitFor(() => {
       expect(screen.getByTestId("user-message")).toBeInTheDocument();
       expect(screen.getByTestId("assistant-message")).toBeInTheDocument();
-      expect(screen.getByText("Annual vacation allowance is 25 days [1].")).toBeInTheDocument();
-      expect(screen.getByTestId("citations-tray")).toBeInTheDocument();
-      expect(screen.getByTestId("citation-pill")).toBeInTheDocument();
-    });
-
-    // Toggle citation preview card
-    fireEvent.click(screen.getByTestId("citation-pill"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("citation-card")).toBeInTheDocument();
-      expect(
-        screen.getByText("Annual vacation allowance is 25 days for all full-time employees.")
-      ).toBeInTheDocument();
+      expect(screen.getByText("Annual vacation allowance is 25 days.")).toBeInTheDocument();
+      expect(screen.queryByTestId("citations-tray")).toBeNull();
+      expect(screen.queryByTestId("citation-pill")).toBeNull();
+      expect(screen.queryByTestId("citation-card")).toBeNull();
     });
   });
 });

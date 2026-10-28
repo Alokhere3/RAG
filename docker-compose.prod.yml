@@ -1,0 +1,92 @@
+# ==============================================================================
+# RAG Platform - Production Docker Compose Override (OCI Ampere ARM64 VM)
+# ==============================================================================
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Guarantees:
+# 1. Zero Host Port Publishing for Data & Private APIs:
+#    - PostgreSQL (5432) and Redis (6379) have NO host port mappings.
+#    - Backend API (8000) has NO host port mapping; routed purely via private
+#      Docker network (rag-network) through Nginx.
+#    - Only Frontend is exposed on 127.0.0.1:3001 to receive traffic forwarded
+#      from the host TLS edge reverse proxy (Nginx / Let's Encrypt on 80/443).
+# 2. Strict Resource Limits tuned for OCI Ampere VM (4 OCPU / 24 GB RAM baseline).
+# 3. Process Privilege Hardening via no-new-privileges:true.
+# 4. Production Restart Policies (restart: always).
+# ==============================================================================
+
+services:
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1G
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    restart: always
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    restart: always
+    environment:
+      APP_ENV: production
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 3G
+        reservations:
+          cpus: "0.2"
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    restart: always
+    # Bound exclusively to host loopback (127.0.0.1); traffic enters via host TLS reverse proxy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3001}:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    security_opt:
+      - no-new-privileges:true

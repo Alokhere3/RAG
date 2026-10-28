@@ -196,3 +196,29 @@ def test_docker_compose_recovery_script_mounted():
         f"Postgres service must mount recover-initialization.sh for initialization recovery. Volumes: {pg_volumes}"
     )
 
+
+def test_docker_compose_prod_override_zero_host_ports():
+    """Verify docker-compose.prod.yml disables host port publishing for postgres, redis, backend."""
+    prod_path = Path(__file__).resolve().parents[3] / "docker-compose.prod.yml"
+    assert prod_path.exists(), f"docker-compose.prod.yml not found at {prod_path}"
+    with open(prod_path, "r", encoding="utf-8") as f:
+        prod_data = yaml.safe_load(f)
+
+    services = prod_data.get("services", {})
+    # Postgres, redis, backend must NOT publish host ports
+    for svc in ("postgres", "redis", "backend"):
+        ports = services[svc].get("ports", [])
+        assert len(ports) == 0, f"Service '{svc}' in docker-compose.prod.yml must not publish host ports, got {ports}"
+
+    # Frontend should bind strictly to loopback 127.0.0.1
+    frontend_ports = services["frontend"].get("ports", [])
+    assert len(frontend_ports) > 0, "Frontend must specify loopback port mapping in production"
+    assert str(frontend_ports[0]).startswith("127.0.0.1:"), (
+        f"Frontend port must bind to loopback 127.0.0.1, got {frontend_ports[0]}"
+    )
+
+    # Resource limits must be declared for all services
+    for svc_name, svc_cfg in services.items():
+        resources = svc_cfg.get("deploy", {}).get("resources", {})
+        assert "limits" in resources, f"Service '{svc_name}' must declare resource limits in docker-compose.prod.yml"
+

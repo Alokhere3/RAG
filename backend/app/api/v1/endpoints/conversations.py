@@ -11,6 +11,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.conversation import (
+    ChatResponse,
     ConversationCreate,
     ConversationListResponse,
     ConversationResponse,
@@ -19,6 +20,7 @@ from app.schemas.conversation import (
     MessageResponse,
 )
 from app.services.conversation_service import conversation_service
+from app.services.rag.sanitizer import sanitize_answer
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +143,7 @@ async def delete_conversation(
 
 @router.post(
     "/{conversation_id}/messages",
-    response_model=MessageResponse,
+    response_model=ChatResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Send message and generate grounded answer",
 )
@@ -150,23 +152,15 @@ async def post_message(
     payload: MessageCreate,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
-) -> MessageResponse:
-    """Post prompt to conversation, execute RAG retrieval, and return assistant response."""
+) -> ChatResponse:
+    """Post prompt to conversation, execute RAG retrieval, and return public answer-only response."""
     _, assistant_msg = await conversation_service.post_message(
         session=session,
         user=current_user,
         conversation_id=conversation_id,
         content=payload.content,
     )
-    return MessageResponse(
-        id=assistant_msg.id,
-        conversation_id=assistant_msg.conversation_id,
-        role=assistant_msg.role,
-        content=assistant_msg.content,
-        citations=assistant_msg.citations,
-        latency_ms=assistant_msg.latency_ms,
-        created_at=assistant_msg.created_at,
-    )
+    return ChatResponse(answer=assistant_msg.content)
 
 
 @router.get(
@@ -197,9 +191,7 @@ async def list_messages(
                 id=m.id,
                 conversation_id=m.conversation_id,
                 role=m.role,
-                content=m.content,
-                citations=m.citations,
-                latency_ms=m.latency_ms,
+                content=sanitize_answer(m.content),
                 created_at=m.created_at,
             )
             for m in items

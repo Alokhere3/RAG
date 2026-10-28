@@ -60,8 +60,9 @@ def test_p002_missing_or_weak_production_secret_fails():
 
 
 def test_p003_wildcard_cors_rejected_in_production():
-    """P003: Wildcard CORS in production is strictly rejected."""
-    with pytest.raises(ValidationError) as exc:
+    """P003: Wildcard, empty, or malformed CORS in production is strictly rejected."""
+    # 1. Wildcard CORS
+    with pytest.raises(ValidationError) as exc1:
         Settings(
             app_env=Environment.PRODUCTION,
             debug=False,
@@ -69,7 +70,40 @@ def test_p003_wildcard_cors_rejected_in_production():
             database_url="postgresql+asyncpg://rag:pass@db:5432/rag",
             jwt_secret="a" * 32,
         )
-    assert "Wildcard CORS ('*') is not allowed in production" in str(exc.value)
+    assert "Wildcard CORS ('*')" in str(exc1.value)
+
+    # 2. Empty CORS
+    with pytest.raises(ValidationError) as exc2:
+        Settings(
+            app_env=Environment.PRODUCTION,
+            debug=False,
+            cors_origins=[],
+            database_url="postgresql+asyncpg://rag:pass@db:5432/rag",
+            jwt_secret="a" * 32,
+        )
+    assert "Empty CORS_ORIGINS is not allowed" in str(exc2.value)
+
+    # 3. Missing scheme
+    with pytest.raises(ValidationError) as exc3:
+        Settings(
+            app_env=Environment.PRODUCTION,
+            debug=False,
+            cors_origins=["dashboard.client.corp"],
+            database_url="postgresql+asyncpg://rag:pass@db:5432/rag",
+            jwt_secret="a" * 32,
+        )
+    assert "must include a valid scheme" in str(exc3.value)
+
+    # 4. Trailing slash
+    with pytest.raises(ValidationError) as exc4:
+        Settings(
+            app_env=Environment.PRODUCTION,
+            debug=False,
+            cors_origins=["https://dashboard.client.corp/"],
+            database_url="postgresql+asyncpg://rag:pass@db:5432/rag",
+            jwt_secret="a" * 32,
+        )
+    assert "must not include a trailing slash" in str(exc4.value)
 
 
 def test_p004_p005_docker_compose_security_and_persistence():

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "../../services/api";
-import type { CitationItem, ConversationItem, MessageItem } from "../../types/chat";
+import type { ConversationItem, MessageItem } from "../../types/chat";
 
 export const ChatInterface: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -11,11 +11,6 @@ export const ChatInterface: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [inputText, setInputText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [expandedCitation, setExpandedCitation] = useState<{
-    msgId: string;
-    citationIdx: number;
-    citation: CitationItem;
-  } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -131,7 +126,14 @@ export const ChatInterface: React.FC = () => {
     setIsSending(true);
 
     try {
-      const asstMsg = await apiClient.sendMessage(targetConvId, clean);
+      const response = await apiClient.sendMessage(targetConvId, clean);
+      const asstMsg: MessageItem = {
+        id: "asst-" + Date.now(),
+        conversation_id: targetConvId,
+        role: "assistant",
+        content: response.answer,
+        created_at: new Date().toISOString(),
+      };
       setMessages((prev) => [...prev, asstMsg]);
       // Update active conversation title in sidebar if updated
       void loadConversations();
@@ -224,7 +226,7 @@ export const ChatInterface: React.FC = () => {
               <h3>Grounded Knowledge Assistant</h3>
               <p>
                 Ask questions against your indexed documents. Answers are strictly
-                grounded with transparent, verifiable citations.
+                grounded in authorized knowledge.
               </p>
               <div className="sample-questions">
                 <button
@@ -259,72 +261,8 @@ export const ChatInterface: React.FC = () => {
                     <span className="chat-role-label">
                       {msg.role === "user" ? "You" : "Assistant"}
                     </span>
-                    {msg.latency_ms != null && (
-                      <span className="chat-latency-badge">
-                        {Math.round(msg.latency_ms)}ms
-                      </span>
-                    )}
                   </div>
                   <div className="chat-message-content">{msg.content}</div>
-
-                  {/* Citations section */}
-                  {msg.citations && msg.citations.length > 0 && (
-                    <div className="chat-citations-section" data-testid="citations-tray">
-                      <div className="citations-header">Sources & Citations:</div>
-                      <div className="citation-pills-row">
-                        {msg.citations.map((c, idx) => {
-                          const isExpanded =
-                            expandedCitation?.msgId === msg.id &&
-                            expandedCitation?.citationIdx === idx;
-                          return (
-                            <button
-                              key={idx}
-                              className={`citation-pill ${isExpanded ? "active" : ""}`}
-                              onClick={() =>
-                                setExpandedCitation(
-                                  isExpanded ? null : { msgId: msg.id, citationIdx: idx, citation: c }
-                                )
-                              }
-                              data-testid="citation-pill"
-                              title="Click to view verified source chunk"
-                            >
-                              📄 {c.document_title}
-                              <span className="citation-chunk">
-                                Chunk #{c.chunk_index}
-                              </span>
-                              <span className="citation-score">
-                                {Math.round(c.relevance_score * 100)}%
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Expanded Citation Preview Card */}
-                      {expandedCitation?.msgId === msg.id && (
-                        <div className="citation-preview-card" data-testid="citation-card">
-                          <div className="citation-preview-header">
-                            <strong>{expandedCitation.citation.document_title}</strong>
-                            <span className="citation-score-badge">
-                              Score: {(expandedCitation.citation.relevance_score * 100).toFixed(1)}%
-                            </span>
-                            <button
-                              className="citation-close-btn"
-                              onClick={() => setExpandedCitation(null)}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          <div className="citation-preview-meta">
-                            Chunk #{expandedCitation.citation.chunk_index}
-                          </div>
-                          <blockquote className="citation-preview-snippet">
-                            {expandedCitation.citation.snippet}
-                          </blockquote>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
             ))

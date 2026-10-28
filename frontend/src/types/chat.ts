@@ -1,10 +1,5 @@
-export interface CitationItem {
-  document_id: string;
-  document_title: string;
-  chunk_id: string;
-  chunk_index: number;
-  relevance_score: number;
-  snippet: string;
+export interface ChatResponse {
+  answer: string;
 }
 
 export interface MessageItem {
@@ -12,11 +7,6 @@ export interface MessageItem {
   conversation_id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  citations?: CitationItem[] | null;
-  latency_ms?: number | null;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
-  total_tokens?: number | null;
   created_at: string;
 }
 
